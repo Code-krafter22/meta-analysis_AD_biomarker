@@ -1,0 +1,17 @@
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("GEOquery")
+library(GEOquery)
+library(dplyr)
+gse <- getGEO("GSE125583", GSEMatrix = TRUE)
+gse <- gse[[1]]
+pData_GSE125583 <- pData(phenoData(gse))
+write.csv(pData_GSE125583, "GSE125583_pData.csv", row.names = FALSE)
+```
+```{r}
+colnames(pData_GSE125583)
+pheno <- pData_GSE125583 %>%
+    select(title, geo_accession, description, "age:ch1", "braak.score:ch1", "case id:ch1", "diagnosis:ch1", "Sex:ch1", "tissue:ch1")%>%
+    filter(description == "repeated in GSE95587: NA")
+```

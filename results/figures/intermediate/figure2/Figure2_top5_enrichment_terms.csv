@@ -1,0 +1,45 @@
+"Direction","Category","Term","pvalue","p.adjust","Score"
+"Up","GO_BP","regulation of autophagy",0.0026115654965036,1,2.58309907784406
+"Up","GO_BP","kidney epithelium development",0.00337456001144536,1,2.47178284418348
+"Up","GO_BP","response to unfolded protein",0.00578296697329176,1,2.23784928795892
+"Up","GO_BP","response to topologically incorrect protein",0.00708235734378281,1,2.14982216448587
+"Up","GO_BP","regulation of intrinsic apoptotic signaling
+pathway",0.00760083327236302,1,2.11913879380449
+"Up","GO_MF","acetyltransferase activator activity",0.00937110492760374,1,2.02820919932885
+"Up","GO_MF","extracellular matrix structural constituent",0.0102205049372033,1,1.99052764764318
+"Up","GO_MF","transcription elongation factor activity",0.0110660718496646,1,1.95600651433047
+"Up","GO_MF","filamin binding",0.0119125353841645,1,1.92399579635365
+"Up","GO_MF","extracellular matrix structural constituent
+conferring compression resistance",0.0186598325604986,1,1.72909225760869
+"Up","GO_CC","astrocyte end-foot",0.00957049788759301,1,2.01906546826185
+"Up","GO_CC","phosphatidylinositol 3-kinase complex",0.0119496689333283,1,1.92264412671755
+"Up","GO_CC","cytoplasmic side of lysosomal membrane",0.0119496689333283,1,1.92264412671755
+"Up","GO_CC","astrocyte projection",0.0174802478905807,1,1.75745241284876
+"Up","GO_CC","gel phase of interstitial matrix",0.0237653677791588,1,1.62405546042568
+"Up","KEGG","Virion - Hepatitis viruses",0.0249571437954377,0.117491644545719,1.60280511870348
+"Up","KEGG","VEGF signaling pathway",0.0311178836054108,0.117491644545719,1.50698994798528
+"Up","KEGG","Amoebiasis",0.0529386577873898,0.117491644545719,1.27622707404562
+"Up","KEGG","Toxoplasmosis",0.0574556353832532,0.117491644545719,1.24066736826687
+"Up","KEGG","Leukocyte transendothelial migration",0.0594576405772882,0.117491644545719,1.2257923286426
+"Down","GO_BP","non-proteinogenic amino acid biosynthetic
+process",8.70364530533452e-05,0.3817353673645,4.06029881583922
+"Down","GO_BP","dicarboxylic acid catabolic process",0.000129841961688606,0.3817353673645,3.88658493168998
+"Down","GO_BP","glutamate metabolic process",0.000240674273532215,0.47172157612314,3.61857033041516
+"Down","GO_BP","detection of visible light",0.000469289611402388,0.68985572876151,3.32855905959649
+"Down","GO_BP","modulation of excitatory postsynaptic
+potential",0.00110136177459779,1,2.9580700008249
+"Down","GO_MF","G protein-coupled photoreceptor activity",0.000113086756820776,0.062318044658577,3.94658825074574
+"Down","GO_MF","photoreceptor activity",0.000146286489808866,0.062318044658577,3.83479578099971
+"Down","GO_MF","myosin V binding",0.000146286489808866,0.062318044658577,3.83479578099971
+"Down","GO_MF","GTP-dependent protein binding",0.000295545778270412,0.0944268761573967,3.52937523995901
+"Down","GO_MF","vitamin binding",0.000531452908278437,0.135839363355969,3.27453521200785
+"Down","GO_CC","clathrin-sculpted vesicle",0.000109580376916261,0.08382898834094,3.96026721008518
+"Down","GO_CC","clathrin-coated vesicle membrane",0.000408328469163113,0.156185639454891,3.38899033947593
+"Down","GO_CC","coated vesicle membrane",0.00127036480624481,0.2500325951407,2.89607154629717
+"Down","GO_CC","transport vesicle",0.00144500211520059,0.2500325951407,2.84013151718475
+"Down","GO_CC","clathrin-coated vesicle",0.00163419996823987,0.2500325951407,2.78669480227757
+"Down","KEGG","Taurine and hypotaurine metabolism",8.34791399238986e-05,0.00192002021824967,4.07842203407028
+"Down","KEGG","Butanoate metabolism",0.000214545837905777,0.00217541413783103,3.66847990617017
+"Down","KEGG","beta-Alanine metabolism",0.000283749670151874,0.00217541413783103,3.54706463464923
+"Down","KEGG","Alanine, aspartate and glutamate metabolism",0.000405378444944877,0.00233092605843304,3.39213934762716
+"Down","KEGG","Type I diabetes mellitus",0.000574114731482116,0.00264092776481773,3.24100130922137

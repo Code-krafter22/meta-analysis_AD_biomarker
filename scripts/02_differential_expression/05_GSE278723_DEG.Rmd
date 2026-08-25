@@ -1,0 +1,272 @@
+---
+title: "Differential Gene Expression Analysis: AD vs. Control by region (GSE278723)"
+author: "KASHVI SHAH"
+date: "`2025-08-19`"
+Author: 
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+params:
+  region_files:
+    - "output_CA1.csv"
+    - "output_CA2.csv"
+    - "output_CA3.csv"
+    - "output_CA4.csv"
+    - "output_NX.csv"
+  logFC_cut: 0.58       # ~1.5x fold change
+  p_cut: 0.05           # retained from original analysis
+---
+
+# 1.Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  library(edgeR)
+  library(limma)
+  library(ggplot2)
+  library(reshape2)
+  library(here)
+})
+
+# Parameters. Knitting supplies `params`; interactive chunk execution does not,
+# so use the YAML defaults when no parameter list is present.
+analysis_params <- get0("params", ifnotfound = NULL, inherits = TRUE)
+if (!is.list(analysis_params)) {
+  analysis_params <- list(
+    region_files = c(
+      "output_CA1.csv", "output_CA2.csv", "output_CA3.csv",
+      "output_CA4.csv", "output_NX.csv"
+    ),
+    logFC_cut = 0.58,
+    p_cut = 0.05
+  )
+}
+
+dataset_id   <- "GSE278723"
+input_dir    <- here::here("data", "processed", dataset_id)
+region_files <- file.path(input_dir, analysis_params$region_files)
+logFC_cut    <- analysis_params$logFC_cut
+p_cut        <- analysis_params$p_cut
+outdir_root  <- here::here("results", "differential_expression", dataset_id)
+
+# Output root
+dir.create(outdir_root, showWarnings = FALSE, recursive = TRUE)
+
+# Helper theme
+theme_set(theme_bw(base_size = 11))
+```
+
+# 2.Methods (brief)
+
+  Read per-region count CSV (first column = gene; remaining columns = samples).
+
+  Basic QC: duplicates/NA report; log2(count+1) boxplot.
+
+  edgeR: TMM normalization, gene filtering by CPM.
+
+  voom/limma: linear model with Condition (Control reference), empirical Bayes.
+
+  Primary filtered analysis below: |logFC| > `r logFC_cut` and nominal P.Value < `r p_cut`.
+
+  Save: full table, significant DEGs, up/down gene lists, top-20 by p-value, and voom       mean–variance plot.
+
+  The unadjusted DEG set is the primary filtered set used for downstream outputs;
+  adjusted and complete unfiltered result tables are also saved separately.
+
+# 3.Region Analysis Function
+
+```{r}
+analyze_one <- function(infile) {
+  tag <- sub("^output_(.*)\\.csv$", "\\1", basename(infile))   # e.g., "CA1"
+  outdir <- file.path(outdir_root, tag)
+  dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+  message("\n========== Running: ", tag, " ==========")
+
+  # --- Read counts ---
+  counts_raw <- read.csv(infile, check.names = FALSE, stringsAsFactors = FALSE)
+
+  # Ensure first column is "Gene" + clean colnames (remove leading X)
+  colnames(counts_raw)[1] <- "Gene"
+  colnames(counts_raw) <- sub("^X", "", colnames(counts_raw))
+
+  # --- Pre-checks (report, then fix only if needed) ---
+  dup_n <- sum(duplicated(counts_raw[,1]))
+  na_n  <- sum(is.na(counts_raw))
+  message("[", tag, "] Duplicated genes: ", dup_n, " | Total NA values: ", na_n)
+
+  if (dup_n > 0) counts_raw$Gene <- make.unique(as.character(counts_raw$Gene)) else counts_raw$Gene <- as.character(counts_raw$Gene)
+  rownames(counts_raw) <- counts_raw$Gene
+  if (na_n > 0) counts_raw[is.na(counts_raw)] <- 0
+
+  # Keep Gene first, then all sample columns
+  counts_df <- counts_raw[, c("Gene", setdiff(colnames(counts_raw), "Gene")), drop = FALSE]
+
+  # Build numeric counts matrix
+  counts_mat <- counts_df[, -1, drop = FALSE]
+  counts_mat <- as.matrix(sapply(counts_mat, as.numeric))
+  rownames(counts_mat) <- counts_df$Gene
+
+  # --- Metadata (set per region; edit counts to match your files) ---
+  sample_names <- colnames(counts_mat)
+
+  if (tag == "CA1") {
+    condition <- c(rep("Control", 12), rep("AD", 14))
+  } else if (tag == "CA2") {
+    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
+  } else if (tag == "CA3") {
+    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
+  } else if (tag == "CA4") {
+    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
+  } else if (tag == "NX") {
+    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
+  } else {
+    stop("Unknown tag: ", tag)
+  }
+
+  if (length(condition) != length(sample_names)) {
+    stop(sprintf("[%s] Condition length (%d) != number of samples (%d). Please fix metadata.", 
+                 tag, length(condition), length(sample_names)))
+  }
+
+  metadata <- data.frame(Sample = sample_names,
+                         Condition = factor(condition, levels = c("Control","AD")))
+  keep_samps <- !is.na(metadata$Condition)
+  if (any(!keep_samps)) {
+    message("[", tag, "] Dropping ", sum(!keep_samps), " samples with unknown group labels.")
+  }
+  metadata   <- metadata[keep_samps, , drop = FALSE]
+  counts_mat <- counts_mat[, metadata$Sample, drop = FALSE]
+
+  message("[", tag, "] Samples per group:")
+  print(table(metadata$Condition))
+
+  # --- QC Boxplot (log2 count) ---
+  log_counts <- log2(counts_mat + 1)
+  log_counts_df <- as.data.frame(log_counts)
+  log_counts_df$Gene <- rownames(log_counts_df)
+  melted_counts <- reshape2::melt(log_counts_df, id.vars = "Gene",
+                                  variable.name = "Sample", value.name = "LogCount")
+
+  p <- ggplot(melted_counts, aes(x = Sample, y = LogCount)) +
+    geom_boxplot(outlier.size = 0.3) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6)) +
+    ylab("Log2(Count + 1)") +
+    ggtitle(sprintf("%s: Boxplot Raw Counts (AD vs Control)", tag))
+  
+  print(p)
+  ggsave(file.path(outdir, sprintf("%s_boxplot_raw_logcounts.png", tag)),
+         p, width = 10, height = 5, dpi = 300)
+
+  # --- edgeR: DGEList, TMM, Filter ---
+  dge <- DGEList(counts = counts_mat, samples = metadata, group = metadata$Condition)
+  dge <- calcNormFactors(dge, method = "TMM")
+
+  log2cpm_raw <- cpm(dge, log = TRUE, prior.count = 1)
+  min_n <- min(table(metadata$Condition))
+  keep <- rowSums(log2cpm_raw > 1) >= min_n
+
+  dge_filt <- dge[keep, , keep.lib.sizes = FALSE]
+  dge_filt <- calcNormFactors(dge_filt, method = "TMM")
+
+  message("[", tag, "] Kept genes after filtering: ", nrow(dge_filt))
+  
+  # Recalculate the log2-CPM on the filtered DGEList object.
+  log2cpm_filtered <- cpm(dge_filt, log = TRUE, prior.count = 1)
+
+  log_counts_df_after <- as.data.frame(log2cpm_filtered)
+  log_counts_df_after$Gene <- rownames(log_counts_df_after)
+  melted_counts_after <- melt(log_counts_df_after, id.vars = "Gene",
+                            variable.name = "Sample", value.name = "LogCount")
+
+  p_after <- ggplot(melted_counts_after, aes(x = Sample, y = LogCount)) +
+    geom_boxplot(outlier.size = 0.3) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6)) +
+    ylab("Log2(CPM + 1)") +
+    ggtitle("Boxplot of Filtered & Normalized Log-CPM")
+  
+  print(p_after)
+
+  ggsave(file.path(outdir, sprintf("%s_boxplot_filtered_logcpm.png", tag)), 
+         p_after, width = 10, height = 5, dpi = 300)
+  
+  write.csv(log2cpm_filtered,
+  file = file.path(outdir, sprintf("%s_filtered_logcpm.csv", tag)),
+  row.names = TRUE)
+  
+  # --- Design (Control reference) ---
+  design <- model.matrix(~ Condition, data = dge_filt$samples)
+
+  # --- Voom + Limma ---
+  v <- voom(dge_filt, design, plot = TRUE)
+  fit <- lmFit(v, design)
+  fit <- eBayes(fit)
+
+  deg <- topTable(fit, coef = "ConditionAD", number = Inf, sort.by = "P")
+
+  # --- Significant DEGs (effect size + p) ---
+  deg_sig_adjusted <- subset(deg, abs(logFC) > logFC_cut & adj.P.Val < p_cut)
+  deg_sig_unadjusted <- subset(deg, abs(logFC) > logFC_cut & P.Value < p_cut)
+  # Primary filtered set for figures, gene lists, and enrichment.
+  deg_sig <- deg_sig_unadjusted
+
+  message("[", tag, "] Differentially expressed genes:", nrow(deg_sig))
+  message("[", tag, "] Adjusted-p-value DEGs: ", nrow(deg_sig_adjusted),
+          "; unadjusted-p-value DEGs: ", nrow(deg_sig_unadjusted))
+  
+  # --- Save outputs ---
+  write.csv(deg,     file.path(outdir, "full_DE_results.csv"), row.names = TRUE)
+  write.csv(deg_sig, file.path(outdir, "significant_DEGs.csv"), row.names = TRUE)
+  write.csv(deg_sig_adjusted,
+            file.path(outdir, "significant_DEGs_adjusted.csv"), row.names = TRUE)
+  write.csv(deg_sig_unadjusted,
+            file.path(outdir, "significant_DEGs_unadjusted.csv"), row.names = TRUE)
+
+  up_genes   <- rownames(deg_sig[deg_sig$logFC > 0, , drop = FALSE])
+  
+  message("[", tag, "] Upregulated genes:", length(up_genes))
+  
+  down_genes <- rownames(deg_sig[deg_sig$logFC < 0, , drop = FALSE])
+  
+  message("[", tag, "] Downregulated genes:", length(down_genes))
+
+  write.table(up_genes,   file.path(outdir, "upregulated_genes.txt"),
+              quote = FALSE, row.names = FALSE, col.names = FALSE)
+  write.table(down_genes, file.path(outdir, "downregulated_genes.txt"),
+              quote = FALSE, row.names = FALSE, col.names = FALSE)
+
+  up_tbl   <- deg_sig[deg_sig$logFC > 0, , drop = FALSE]
+  down_tbl <- deg_sig[deg_sig$logFC < 0, , drop = FALSE]
+  top20_up   <- head(up_tbl[order(up_tbl$P.Value), ], 20)
+  top20_down <- head(down_tbl[order(down_tbl$P.Value), ], 20)
+
+  write.csv(top20_up,   file.path(outdir, sprintf("%s_Top20_Upregulated_AD_vs_Control.csv", tag)))
+  write.csv(top20_down, file.path(outdir, sprintf("%s_Top20_Downregulated_AD_vs_Control.csv", tag)))
+
+  message("========== Done: ", tag, " ==========")
+
+  # Return invisibly for inline summaries
+  invisible(list(
+    tag = tag,
+    n_sig = nrow(deg_sig),
+    n_up = nrow(up_tbl),
+    n_down = nrow(down_tbl)
+  ))
+}
+```
+
+# 4.Run All Regions
+```{r}
+for (f in region_files) analyze_one(f)
+```
+
+# 5.Session information
+
+```{r session_info}
+writeLines(capture.output(sessionInfo()), file.path(outdir_root, "sessionInfo.txt"))
+sessionInfo()
+```

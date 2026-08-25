@@ -1,0 +1,39 @@
+```{r}
+library(readr)
+library(dplyr)
+
+expr_path  <- "raw_counts_200samples.csv"
+annot_path <- "annotation.tsv"
+
+# 1) Read files
+expr  <- read.csv(expr_path, check.names = FALSE)
+annot <- read_tsv(annot_path, show_col_types = FALSE)
+
+# Make sure GeneID types match
+expr$GeneID  <- as.character(expr$GeneID)
+annot$GeneID <- as.character(annot$GeneID)
+
+# 2) Join annotation onto expression
+expr_anno <- expr %>%
+  left_join(annot %>% select(GeneID, Symbol, EnsemblGeneID, Description, GeneType),
+            by = "GeneID")
+
+# 3) Quick checks
+cat("Total rows in expr:", nrow(expr), "\n")
+cat("Mapped to Symbol:", sum(!is.na(expr_anno$Symbol) & expr_anno$Symbol != ""), "\n")
+cat("Unmapped:", sum(is.na(expr_anno$Symbol) | expr_anno$Symbol == ""), "\n")
+
+# OPTIONAL: view a few unmapped IDs
+head(expr_anno %>% filter(is.na(Symbol) | Symbol == "") %>% select(GeneID) %>% distinct(), 10)
+
+# 4) If you want a SYMBOL x sample matrix (recommended for readability):
+sample_cols <- setdiff(colnames(expr_anno), c("GeneID","Symbol","EnsemblGeneID","Description","GeneType"))
+
+expr_symbol <- expr_anno %>%
+  filter(!is.na(Symbol), Symbol != "") %>%
+  group_by(Symbol) %>%
+  summarise(across(all_of(sample_cols), ~ sum(as.numeric(.), na.rm = TRUE)),
+            .groups = "drop")
+
+# Save it
+write.csv(expr_symbol, "expression_matrix_SYMBOL.csv", row.names = FALSE)

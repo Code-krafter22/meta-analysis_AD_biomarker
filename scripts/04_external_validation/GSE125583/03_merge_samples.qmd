@@ -1,0 +1,55 @@
+```{r}
+# ===============================
+# Subset raw_counts.tsv to samples listed in metadata
+# (expr columns are exactly GSM IDs, e.g. "GSM3577568")
+# ===============================
+
+library(readr)
+library(dplyr)
+
+expr_file <- "raw_counts.tsv"
+meta_file <- "metadata_GSE125583.csv"
+
+expr <- read_tsv(expr_file, show_col_types = FALSE)
+meta <- read.csv(meta_file, check.names = FALSE)
+
+# ---- 0) Detect gene id column name ----
+gene_col <- intersect(c("GeneID", "ID_REF"), colnames(expr))
+if (length(gene_col) == 0) stop("Couldn't find gene id column. Expected 'GeneID' or 'ID_REF'.")
+gene_col <- gene_col[1]
+
+# ---- 1) GSMs to keep ----
+meta$geo_accession <- as.character(meta$geo_accession)
+keep_gsm <- unique(meta$geo_accession)
+keep_gsm <- keep_gsm[!is.na(keep_gsm) & keep_gsm != ""]
+
+# ---- 2) Expression sample columns ----
+sample_cols <- setdiff(colnames(expr), gene_col)
+
+# exact matches
+keep_cols <- intersect(keep_gsm, sample_cols)
+
+# ---- 3) QC: missing GSMs ----
+missing_gsm <- setdiff(keep_gsm, keep_cols)
+if (length(missing_gsm) > 0) {
+  cat("These GSMs are in metadata but not found in expression columns:\n")
+  print(missing_gsm)
+  stop("Fix sample naming mismatch before subsetting.")
+}
+
+# ---- 4) Order columns to match metadata order ----
+keep_cols <- keep_gsm[match(keep_gsm, keep_cols)]  # preserves metadata order
+
+# ---- 5) Subset expression matrix ----
+expr_200 <- expr %>% select(all_of(c(gene_col, keep_cols)))
+
+# ---- 6) Subset/reorder metadata to match expression column order ----
+meta_200 <- meta[match(keep_cols, meta$geo_accession), , drop = FALSE]
+stopifnot(all(meta_200$geo_accession == keep_cols))
+
+# ---- 7) Save outputs ----
+write.csv(expr_200, "raw_counts_200samples.csv", row.names = FALSE)
+write.csv(meta_200, "metadata_200samples.csv", row.names = FALSE)
+
+cat("Done!\nSaved:\n - raw_counts_200samples.csv\n - metadata_200samples.csv\n")
+cat("Dimensions:", nrow(expr_200), "genes x", ncol(expr_200)-1, "samples\n")

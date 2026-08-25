@@ -1,0 +1,38 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.Rhistory
+.RData
+.Rproj.user/
+.cache/
+.venv/
+venv/
+
+# Controlled-access data must never be committed.
+data/restricted/
+data/**/MSBB_*expression*
+data/**/MSBB_*metadata*
+data/**/ADKP*
+
+# Public source data are downloaded/reconstructed locally, not committed.
+# Dataset README files remain versioned and document provenance.
+data/raw/**/*.csv
+data/raw/**/*.tsv
+data/raw/**/*.txt
+data/raw/**/*.xlsx
+data/raw/**/*.gz
+data/metadata/**/*.csv
+data/metadata/**/*.tsv
+data/metadata/**/*.txt
+data/metadata/**/*.xlsx
+
+# Large DEG input matrices. Small signature-level and figure inputs remain.
+data/processed/GSE159699/EDITED_COUNTS.csv
+data/processed/GSE203206/GSE203206_Subramaniam.ADRC_brain.counts.tsv
+data/processed/GSE278723/output_*.csv
+data/processed/GSE67333/Edited_raw_counts.csv
+data/processed/GSE95587/Edited_raw_counts.csv
+
+# Local secrets and path configuration.
+.env
+*.local

@@ -1,0 +1,2 @@
+root<-file.path(here::here(),"scripts","05_figures","manuscript")
+for(f in c(file.path("shared_braak","00_prepare_braak_analysis.R"),file.path("figure3_braak_overall","01_overall_waterfall.R"),file.path("figure3_braak_overall","02_reproducible_forest_plot.R"),file.path("figure3_braak_overall","03_assemble_reproducible_figure3.R"))){message("Running: ",f);sys.source(file.path(root,f),envir=globalenv())}

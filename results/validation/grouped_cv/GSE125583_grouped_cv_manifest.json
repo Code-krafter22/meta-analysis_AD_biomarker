@@ -1,0 +1,24 @@
+{
+  "cohort": "GSE125583",
+  "n_samples": 200,
+  "n_donors": 200,
+  "n_genes": 36,
+  "n_folds": 5,
+  "fold_aucs": [
+    0.8046875,
+    0.80078125,
+    0.8566308243727598,
+    0.96875,
+    0.935483870967742
+  ],
+  "l1_ratio": 0.5,
+  "C": 1.0,
+  "random_state": 42,
+  "software": {
+    "python": "3.14.4",
+    "numpy": "2.4.6",
+    "pandas": "2.3.3",
+    "scikit_learn": "1.9.0",
+    "matplotlib": "3.11.0"
+  }
+}

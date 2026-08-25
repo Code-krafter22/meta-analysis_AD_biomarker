@@ -1,0 +1,38 @@
+
+```{r}
+library(readr)
+library(dplyr)
+
+infile  <- "data/GSE125583/DE_data/GSE125583_log2cpm_values.csv"
+outfile <- "data/GSE125583/DE_data/GSE125583_log2cpm_SELECTED_GENES.csv"
+
+# ---- put your selected genes here (or read from a txt file) ---- #"COL25A1" is missing
+genes_keep <- c("ADAM33", "AEBP1", "CCDC102A","CLDN9", "GFAP","HSPB1","HSPB7","KANK2", "KLF15", "MRGPRF", "NUPR1", "PIK3R5", "PRELP", "PRX", "TCEA3", "TMPRSS5", "CHML", "ELOVL4", "GAD1", "GAD2", "HPRT1", "ITFG1", "MAS1", "NAP1L5", "NCALD", "NEUROD6", "NRN1", "OPN3", "RAB3B", "RAB3C", "RGS4", "RPH3A", "SCG2", "SERPINI1", "STAT4", "TRIM36" )   
+# genes_keep <- readLines("selected_genes.txt")
+
+# ---- read + detect gene column ----
+df <- read.csv(infile, check.names = FALSE, stringsAsFactors = FALSE)
+
+# if first col is the gene column, standardize it
+gene_col <- colnames(df)[-1]
+colnames(df)[1] <- "Gene"
+
+df$Gene <- as.character(df$Gene)
+
+present <- intersect(genes_keep, df$Gene)
+missing <- setdiff(genes_keep, present)
+
+cat("Genes requested:", length(genes_keep), "\n")
+cat("Genes found:", length(present), "\n")
+if (length(missing) > 0) {
+  cat("Missing genes:\n")
+  print(missing)
+}
+
+# ---- subset (keeps the same order as genes_keep) ----
+df_sub <- df %>% filter(Gene %in% present)
+df_sub <- df_sub[match(present, df_sub$Gene), , drop = FALSE]
+
+write.csv(df_sub, outfile, row.names = FALSE)
+cat("Saved:", outfile, "\n")
+```

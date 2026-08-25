@@ -1,0 +1,556 @@
+---
+title: "Differential Gene Expression Analysis: AD vs. Control (GSE203206)"
+author: "Analysis Pipeline"
+date: "2025-08-13"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Introduction
+
+This document outlines the steps for performing a differential gene expression (DGE) analysis using RNA-Seq count data. The goal is to identify genes that are differentially expressed between Alzheimer's Disease (AD) samples and Control samples from the **GSE203206** dataset. The analysis pipeline uses the **limma-voom** workflow, which is well-suited for this type of data.
+
+The main steps are:
+1.  Data loading and preparation.
+2.  Data visualization and filtering.
+3.  Differential expression analysis using `limma` and `voom`.
+4.  Saving the results.
+
+***
+
+## 1. Environment Setup
+
+### A. Project-relative paths
+
+All inputs and outputs are resolved from the repository root with `here::here()`.
+
+```{r paths}
+dataset_id <- "GSE203206"
+input_file <- here::here("data", "processed", dataset_id, "GSE203206_Subramaniam.ADRC_brain.counts.tsv")
+outdir <- here::here("results", "differential_expression", dataset_id)
+dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+result_file <- function(filename) file.path(outdir, filename)
+```
+
+### B. Load Required Libraries
+
+We load the R packages required for the analysis.
+* **edgeR**: Used for creating the `DGEList` object, filtering, and normalization.
+* **limma**: The core package for differential expression analysis using linear models, including the `voom` function.
+* **ggplot2**: A powerful library for creating visualizations, such as boxplots.
+* **reshape2**: Used for data manipulation, specifically the `melt` function to prepare data for `ggplot2`.
+
+```{r load_libraries}
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(reshape2)
+library(here)
+```
+
+***
+
+## 2. Data Loading and Preparation
+
+### A. Load Raw Count Data
+
+We load the raw gene counts from a tab-separated values (TSV) file using `read.delim`.
+
+```{r load_data}
+counts_raw <- read.delim(input_file, check.names = FALSE, stringsAsFactors = FALSE)
+```
+
+### B. Clean, Select, and Prepare Data
+
+The raw data is processed to prepare it for analysis.
+1.  **Format and Clean Data**: We set the first column ("Gene") as the row names. Any missing values (`NA`) in the dataset are replaced with 0.
+2.  **Select Samples**: We specifically select the columns corresponding to AD samples (names starting with "E" or "L") and Control samples (names starting with "C").
+3.  **Create Numeric Matrix**: The final subset of data is converted into a numeric matrix, which is the required input format for `edgeR`.
+
+```{r clean_select_counts}
+# Assume first column is gene symbol/ID and set it as rownames
+colnames(counts_raw)[1] <- "Gene"
+rownames(counts_raw) <- counts_raw$Gene
+
+# Replace any NA values with 0
+counts_raw[is.na(counts_raw)] <- 0
+
+# Select AD (E* or L*) and Control (C*) sample columns
+all_cols <- colnames(counts_raw)
+ad_cols  <- all_cols[grepl("^(E|L)", all_cols)]
+ctl_cols <- all_cols[grepl("^C", all_cols)]
+
+# Keep only the selected columns
+counts_df <- counts_raw[, c("Gene", ad_cols, ctl_cols), drop = FALSE]
+
+# Build the final numeric counts matrix
+counts_mat <- counts_df[, -1, drop = FALSE]
+counts_mat <- as.matrix(sapply(counts_mat, as.numeric))
+rownames(counts_mat) <- counts_df$Gene
+```
+
+### C. Create Metadata
+
+We create a metadata data frame for the selected samples. The condition ("AD" or "Control") is determined from the sample name prefixes. This metadata is then aligned with the columns of our count matrix.
+
+```{r create_metadata}
+sample_names <- colnames(counts_mat)
+condition <- ifelse(grepl("^(E|L)", sample_names), "AD",
+                    ifelse(grepl("^C", sample_names), "Control", NA))
+
+metadata <- data.frame(Sample = sample_names,
+                       Condition = factor(condition, levels = c("Control", "AD")))
+
+# Align metadata and count matrix
+keep_samps <- !is.na(metadata$Condition)
+metadata   <- metadata[keep_samps, , drop = FALSE]
+counts_mat <- counts_mat[, metadata$Sample, drop = FALSE]
+
+cat("Samples per group:\n")
+print(table(metadata$Condition))
+```
+
+***
+
+## 3. Data Quality Assessment and Filtering
+
+### A. Boxplot of Raw Counts (Before Filtering)
+
+To assess the distribution of counts across samples, we generate a boxplot. This helps identify any major outliers or batch effects. We use log2-transformed counts (`log2(count + 1)`) for better visualization.
+
+```{r boxplot_before}
+log_counts <- log2(counts_mat + 1)
+log_counts_df <- as.data.frame(log_counts)
+log_counts_df$Gene <- rownames(log_counts_df)
+melted_counts <- melt(log_counts_df, id.vars = "Gene",
+                      variable.name = "Sample", value.name = "LogCount")
+
+ggplot(melted_counts, aes(x = Sample, y = LogCount)) +
+  geom_boxplot(outlier.size = 0.3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6)) +
+  ylab("Log2(Count + 1)") +
+  ggtitle("Boxplot: Raw Log-Counts (AD vs Control)")
+
+ggsave(result_file("_boxplot_raw_logcounts.png"), width = 10, height = 5, dpi = 300)
+```
+
+### B. Create DGEList, Normalize, and Filter
+
+Now, we prepare the data for differential expression analysis.
+1.  **DGEList Object**: We create a `DGEList` object, the main data container used by `edgeR`.
+2.  **Normalization**: We apply TMM (Trimmed Mean of M-values) normalization to adjust for differences in library size between samples.
+3.  **Filtering**: We filter out genes with low expression that provide little statistical power. We keep genes with a log2-CPM value greater than 1 in at least the minimum number of samples in any condition.
+
+```{r filter_normalize}
+dge <- DGEList(counts = counts_mat, samples = metadata, group = metadata$Condition)
+dge <- calcNormFactors(dge, method = "TMM")
+cat(sprintf("Genes before filtering: %d\n", nrow(dge)))
+
+# Define filtering threshold
+log2cpm_raw <- cpm(dge, log = TRUE, prior.count = 1)
+min_n <- min(table(metadata$Condition))
+keep <- rowSums(log2cpm_raw > 1) >= min_n
+
+# Filter the DGEList and recalculate norm factors
+dge_filt <- dge[keep, , keep.lib.sizes = FALSE]
+dge_filt <- calcNormFactors(dge_filt, method = "TMM")
+
+cat(sprintf("Kept genes after filtering: %d\n", nrow(dge_filt)))
+```
+
+### C. Boxplot of Filtered Counts (After Filtering)
+
+We create another boxplot to visualize the data after filtering and normalization. The distributions between samples should now be more aligned.
+
+```{r boxplot_after}
+log2cpm_filtered <- cpm(dge_filt, log = TRUE, prior.count = 1)
+log_counts_df_after <- as.data.frame(log2cpm_filtered)
+log_counts_df_after$Gene <- rownames(log_counts_df_after)
+melted_counts_after <- melt(log_counts_df_after, id.vars = "Gene",
+                            variable.name = "Sample", value.name = "Log2CPM")
+
+ggplot(melted_counts_after, aes(x = Sample, y = Log2CPM)) +
+  geom_boxplot(outlier.size = 0.3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6)) +
+  ylab("Log2(CPM)") +
+  ggtitle("Boxplot: Filtered Log-CPM (AD vs Control)")
+
+ggsave(result_file("_boxplot_filtered_logcpm.png"), width = 10, height = 5, dpi = 300)
+
+write.csv(log2cpm_filtered,result_file("GSE203206_Expression_data.csv"))
+```
+
+***
+
+## 4. Differential Expression Analysis with limma-voom
+
+### A. Define the Design Matrix
+
+We create a design matrix that specifies the model to be fit to each gene. The formula `~ Condition` models the gene expression based on the `Condition` variable (AD vs. Control), with "Control" as the reference level.
+
+```{r design_matrix}
+design <- model.matrix(~ Condition, data = dge_filt$samples)
+rownames(design) <- colnames(dge_filt)
+head(design)
+```
+
+### B. Run Voom and Fit the Linear Model
+
+The `limma-voom` workflow transforms the count data for linear modeling.
+1.  **`voom`**: Transforms the count data to log2-CPM, estimates the mean-variance relationship, and computes precision weights. The resulting trend plot is saved as a PNG.
+2.  **`lmFit`**: Fits a linear model for each gene based on the design matrix.
+3.  **`eBayes`**: Applies empirical Bayes moderation to the standard errors, borrowing information across genes to improve statistical power.
+
+```{r voom_limma, fig.cap="Voom Mean-Variance Plot"}
+v <- voom(dge_filt, design, plot = TRUE)
+fit <- lmFit(v, design)
+fit <- eBayes(fit)
+```
+
+### C. Extract and Subset DEGs
+
+We extract the results using `topTable` and subset them to find statistically significant differentially expressed genes (DEGs). We define significance with a log-fold-change (logFC) threshold of `> 0.58` (a fold change of ~1.5) and a P-value threshold of `< 0.05`.
+
+```{r extract_degs}
+deg <- topTable(fit, coef = "ConditionAD", number = Inf, sort.by = "P")
+deg_sig_adjusted <- subset(deg, abs(logFC) > 0.58 & adj.P.Val < 0.05)
+deg_sig_unadjusted <- subset(deg, abs(logFC) > 0.58 & P.Value < 0.05)
+# Primary filtered set for figures, gene lists, and enrichment.
+deg_sig <- deg_sig_unadjusted
+cat(sprintf("Found %d significant DEGs.\n", nrow(deg_sig)))
+cat(sprintf("Adjusted-p-value DEGs: %d; unadjusted-p-value DEGs: %d\n",
+            nrow(deg_sig_adjusted), nrow(deg_sig_unadjusted)))
+```
+
+***
+
+## 5. Save Results
+
+Finally, we save the lists of significant DEGs. We save several files:
+1.  A CSV file with the full statistics for all significant DEGs.
+2.  Text files containing only the gene names for upregulated and downregulated genes.
+3.  CSV files containing the statistics for the top 20 upregulated and top 20 downregulated genes, sorted by p-value.
+
+```{r save_results}
+# Save all significant DEGs
+write.csv(deg, result_file("full_DE_results.csv"), row.names = TRUE)
+write.csv(deg_sig, result_file("significant_DEGs.csv"), row.names = TRUE)
+write.csv(deg_sig_adjusted, result_file("significant_DEGs_adjusted.csv"), row.names = TRUE)
+write.csv(deg_sig_unadjusted, result_file("significant_DEGs_unadjusted.csv"), row.names = TRUE)
+
+# Save lists of up- and down-regulated gene names
+up_genes <- rownames(deg_sig[deg_sig$logFC > 0, , drop = FALSE])
+down_genes <- rownames(deg_sig[deg_sig$logFC < 0, , drop = FALSE])
+
+write.table(up_genes, result_file("upregulated_genes.txt"),
+            quote = FALSE, row.names = FALSE, col.names = FALSE)
+write.table(down_genes, result_file("downregulated_genes.txt"),
+            quote = FALSE, row.names = FALSE, col.names = FALSE)
+
+cat(sprintf("Found %d upregulated and %d downregulated genes.\n", length(up_genes), length(down_genes)))
+
+# Isolate and save top 20 up/down regulated genes
+top20_up <- head(deg_sig[deg_sig$logFC > 0, ][order(deg_sig$P.Value[deg_sig$logFC > 0]), ], 20)
+top20_down <- head(deg_sig[deg_sig$logFC < 0, ][order(deg_sig$P.Value[deg_sig$logFC < 0]), ], 20)
+
+write.csv(top20_up, result_file("Top20_Upregulated_AD_vs_Control.csv"), row.names = TRUE)
+write.csv(top20_down, result_file("Top20_Downregulated_AD_vs_Control.csv"), row.names = TRUE)
+```
+```{r map_deg_to_hgnc_fix}
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+
+map_deg_table_to_symbol <- function(tt, id_keytype = "ENSEMBL") {
+  ids <- rownames(tt)
+  ids_clean <- sub("\\..*$", "", ids)
+
+  sym <- mapIds(
+    org.Hs.eg.db,
+    keys = ids_clean,
+    keytype = id_keytype,
+    column = "SYMBOL",
+    multiVals = "first"
+  )
+
+  # Build a data.frame with SYMBOL as a column first (avoid duplicate rowname error)
+  df <- tt
+  df$SYMBOL <- unname(sym)
+
+  # drop unmapped
+  df <- df[!is.na(df$SYMBOL) & df$SYMBOL != "", , drop = FALSE]
+
+  # keep most significant row per SYMBOL (smallest P.Value)
+  df <- df[order(df$P.Value, df$adj.P.Val, na.last = TRUE), , drop = FALSE]
+  df <- df[!duplicated(df$SYMBOL), , drop = FALSE]
+
+  rownames(df) <- df$SYMBOL
+  df$SYMBOL <- NULL
+  df
+}
+
+deg_sym     <- map_deg_table_to_symbol(deg)
+deg_sig_sym <- map_deg_table_to_symbol(deg_sig)
+
+cat("deg rows:", nrow(deg), "->", nrow(deg_sym), "\n")
+cat("deg_sig rows:", nrow(deg_sig), "->", nrow(deg_sig_sym), "\n")
+
+```
+
+```{r}
+# -------------------------
+# HEATMAP: Top 20 genes (uniform groups)
+# -------------------------
+suppressPackageStartupMessages({
+  library(AnnotationDbi)
+  library(org.Hs.eg.db)
+  library(matrixStats)
+  library(pheatmap)
+  library(clusterProfiler)
+  library(enrichplot)
+})
+
+# -------------------------
+# Make a SYMBOL-rowed expression matrix from voom (v$E)
+# -------------------------
+make_symbol_expr <- function(E, keytype = "ENSEMBL") {
+  ids <- rownames(E)
+  ids_clean <- sub("\\..*$", "", ids)
+
+  sym <- mapIds(
+    org.Hs.eg.db,
+    keys      = ids_clean,
+    keytype   = keytype,
+    column    = "SYMBOL",
+    multiVals = "first"
+  )
+
+  keep <- !is.na(sym) & sym != ""
+  E2 <- E[keep, , drop = FALSE]
+  rownames(E2) <- unname(sym[keep])
+
+  # if multiple ENSEMBL map to same SYMBOL, keep the most variable row (best for heatmaps)
+  if (any(duplicated(rownames(E2)))) {
+    rv <- matrixStats::rowVars(as.matrix(E2), na.rm = TRUE)
+    E2 <- E2[order(rownames(E2), -rv), , drop = FALSE]
+    E2 <- E2[!duplicated(rownames(E2)), , drop = FALSE]
+  }
+
+  E2
+}
+
+E_sym <- make_symbol_expr(v$E, keytype = "ENSEMBL")
+
+# -------------------------
+# Choose top genes (HGNC SYMBOLS) from your SYMBOL-mapped DEG tables
+# -------------------------
+top_tbl <- if (nrow(deg_sig_sym) >= 20) deg_sig_sym else deg_sym
+top20_genes <- rownames(top_tbl)[1:min(20, nrow(top_tbl))]
+
+# Subset safely (avoids "subscript out of bounds")
+genes_use <- intersect(top20_genes, rownames(E_sym))
+stopifnot(length(genes_use) > 1)
+
+expr_hm <- E_sym[genes_use, , drop = FALSE]
+
+# Optional: keep gene order exactly as in top20_genes
+expr_hm <- expr_hm[match(genes_use, rownames(expr_hm)), , drop = FALSE]
+expr_hm <- expr_hm[top20_genes[top20_genes %in% rownames(expr_hm)], , drop = FALSE]
+
+# -------------------------
+# Heatmap (SYMBOLs kept)
+# -------------------------
+pheatmap(expr_hm, scale = "row", fontsize_row = 9)
+
+
+# Order samples: Control then AD
+ord <- order(metadata$Condition)   # factor levels are Control, AD (as you set)
+expr_hm <- expr_hm[, ord, drop = FALSE]
+meta_hm <- metadata[ord, , drop = FALSE]
+
+ann_col <- data.frame(Condition = meta_hm$Condition)
+rownames(ann_col) <- meta_hm$Sample
+ann_colors <- list(Condition = c(Control = "#3B6FB6", AD = "#C0392B"))
+
+# add a visual gap between groups
+n_ctl <- sum(meta_hm$Condition == "Control")
+gaps <- n_ctl
+
+png(result_file("_heatmap_top20_genes.png"), width = 4000, height = 2400, res = 600)
+pheatmap(
+  expr_hm,
+  scale = "row",
+  annotation_col = ann_col,
+  annotation_colors = ann_colors,
+  show_colnames = FALSE,
+  fontsize_row = 9,
+  cluster_cols = FALSE,   # keeps Control together, AD together
+  gaps_col = gaps,
+  main = "Heatmap Top 20 genes"
+)
+dev.off()
+```
+
+```{r}
+# assumes rownames are gene SYMBOLs; if they are ENSG IDs, tell me and I'll swap mapping
+
+sig_symbols <- rownames(deg_sig)
+
+conv <- bitr(sig_symbols,
+fromType = "ENSEMBL",
+toType   = c("ENTREZID"),
+OrgDb    = org.Hs.eg.db)
+
+# keep unique ENTREZ
+
+sig_entrez <- unique(conv$ENTREZID)
+
+# up/down sets (optional separate enrichment)
+
+up_symbols   <- rownames(deg_sig[deg_sig$logFC > 0, , drop=FALSE])
+down_symbols <- rownames(deg_sig[deg_sig$logFC < 0, , drop=FALSE])
+
+conv_up <- bitr(up_symbols, fromType="ENSEMBL", toType="ENTREZID", OrgDb=org.Hs.eg.db)
+conv_dn <- bitr(down_symbols, fromType="ENSEMBL", toType="ENTREZID", OrgDb=org.Hs.eg.db)
+
+up_entrez <- unique(conv_up$ENTREZID)
+dn_entrez <- unique(conv_dn$ENTREZID)
+
+cat("Mapped significant genes to Entrez:", length(sig_entrez), "\n")
+cat("Up:", length(up_entrez), "Down:", length(dn_entrez), "\n")
+```
+
+```{r}
+ego_bp <- enrichGO(gene          = up_entrez,
+OrgDb         = org.Hs.eg.db,
+keyType       = "ENTREZID",
+ont           = "BP",
+pAdjustMethod = "BH",
+qvalueCutoff  = 0.05,
+readable      = TRUE)
+
+ego_cc <- enrichGO(gene = up_entrez, OrgDb=org.Hs.eg.db, keyType="ENTREZID",
+ont="CC", pAdjustMethod="BH", qvalueCutoff=0.05, readable=TRUE)
+
+ego_mf <- enrichGO(gene = up_entrez, OrgDb=org.Hs.eg.db, keyType="ENTREZID",
+ont="MF", pAdjustMethod="BH", qvalueCutoff=0.05, readable=TRUE)
+
+# Save tables
+
+write.csv(as.data.frame(ego_bp), result_file("GSE203206_GO_BP_UP.csv"), row.names = FALSE)
+write.csv(as.data.frame(ego_cc), result_file("GSE203206_GO_CC_UP.csv"), row.names = FALSE)
+write.csv(as.data.frame(ego_mf), result_file("GSE203206_GO_MF_UP.csv"), row.names = FALSE)
+
+# Plot
+
+p1 <- dotplot(ego_bp, showCategory = 20) + ggtitle("GO Biological Process (ORA)")
+p2 <- dotplot(ego_cc, showCategory = 15) + ggtitle("GO Cellular Component (ORA)")
+p3 <- dotplot(ego_mf, showCategory = 15) + ggtitle("GO Molecular Function (ORA)")
+
+print(p1); print(p2); print(p3)
+
+ggsave(result_file("_GO_BP_dotplot.png"), p1, width = 9, height = 6, dpi = 300)
+ggsave(result_file("_GO_CC_dotplot.png"), p2, width = 9, height = 6, dpi = 300)
+ggsave(result_file("_GO_MF_dotplot.png"), p3, width = 9, height = 6, dpi = 300)
+```
+
+```{r}
+ekegg_up <- enrichKEGG(gene=up_entrez, organism="hsa",
+                       pAdjustMethod="BH", qvalueCutoff=0.05)
+
+ekegg_dn <- enrichKEGG(gene=dn_entrez, organism="hsa",
+                       pAdjustMethod="BH", qvalueCutoff=0.05)
+
+# Convert Entrez IDs in results to gene symbols for readability
+ekegg_up <- setReadable(ekegg_up, OrgDb=org.Hs.eg.db, keyType="ENTREZID")
+ekegg_dn <- setReadable(ekegg_dn, OrgDb=org.Hs.eg.db, keyType="ENTREZID")
+
+write.csv(as.data.frame(ekegg_up), result_file("KEGG_UP.csv"), row.names=FALSE)
+write.csv(as.data.frame(ekegg_dn), result_file("KEGG_DOWN.csv"), row.names=FALSE)
+
+p_kegg_up <- dotplot(ekegg_up, showCategory=20) + ggtitle("KEGG Pathway Enrichment (Upregulated)")
+p_kegg_dn <- dotplot(ekegg_dn, showCategory=20) + ggtitle("KEGG Pathway Enrichment (Downregulated)")
+
+print(p_kegg_up); print(p_kegg_dn)
+
+ggsave(result_file("_KEGG_up_dotplot.png"), p_kegg_up, width=9, height=10, dpi=300)
+ggsave(result_file("_KEGG_down_dotplot.png"), p_kegg_dn, width=9, height=10, dpi=300)
+
+```
+
+```{r}
+library(ggplot2)
+library(ggrepel)
+
+# thresholds (match your DEG definition)
+lfc_cut <- 0.58
+p_cut   <- 0.05   # using P.Value only
+
+# Use SYMBOL-mapped significant table directly
+vol <- deg_sig_sym
+vol$Gene <- rownames(vol)   # HGNC symbols
+
+# protect against zeros for -log10
+vol$P.Value[vol$P.Value == 0] <- .Machine$double.xmin
+
+# classify using P.Value (no FDR anywhere)
+vol$Sig <- "NotSig"
+vol$Sig[vol$logFC >  lfc_cut & vol$P.Value < p_cut] <- "Up"
+vol$Sig[vol$logFC < -lfc_cut & vol$P.Value < p_cut] <- "Down"
+
+# Pick top genes to label (smallest P.Value within Up/Down)
+top_n <- 10
+
+top_up <- vol[vol$Sig == "Up", , drop = FALSE]
+top_up <- top_up[order(top_up$P.Value), , drop = FALSE]
+top_up <- head(top_up, min(top_n, nrow(top_up)))
+
+top_dn <- vol[vol$Sig == "Down", , drop = FALSE]
+top_dn <- top_dn[order(top_dn$P.Value), , drop = FALSE]
+top_dn <- head(top_dn, min(top_n, nrow(top_dn)))
+
+label_df <- rbind(top_up, top_dn)
+
+# Volcano plot (HGNC labels; p-value axis)
+p_vol <- ggplot(vol, aes(x = logFC, y = -log10(P.Value))) +
+  geom_point(aes(color = Sig), alpha = 0.7, size = 1.6) +
+  geom_vline(xintercept = c(-lfc_cut, lfc_cut), linetype = "dashed") +
+  geom_hline(yintercept = -log10(p_cut), linetype = "dashed") +
+  ggrepel::geom_text_repel(
+    data = label_df,
+    aes(label = Gene),
+    size = 3,
+    max.overlaps = Inf,
+    box.padding = 0.35,
+    point.padding = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    title = "Volcano Plot: AD vs Control (HGNC symbols)",
+    x = "log2 Fold Change (AD vs Control)",
+    y = "-log10(p-value)"
+  )
+
+print(p_vol)
+ggsave(result_file("_volcano_AD_vs_Control_pvalue_deg_sig_sym.png"), p_vol, width = 8, height = 6, dpi = 300)
+
+cat("Up:", sum(vol$Sig == "Up"), "\n")
+cat("Down:", sum(vol$Sig == "Down"), "\n")
+```
+
+## Session information
+
+```{r session_info}
+writeLines(capture.output(sessionInfo()), result_file("sessionInfo.txt"))
+sessionInfo()
+```
+```
+```
