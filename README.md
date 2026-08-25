@@ -2,7 +2,7 @@
 
 Reproducible preprocessing, differential-expression, meta-analysis, external
 validation, and manuscript-figure workflows for five discovery datasets plus
-GSE125583 and controlled-access MSBB validation.
+GSE125583 and MSBB validation.
 
 ## Run order
 
