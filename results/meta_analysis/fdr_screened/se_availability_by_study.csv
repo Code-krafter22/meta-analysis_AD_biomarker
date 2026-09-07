@@ -1,0 +1,9 @@
+acc,region,total_genes,percent_with_SE
+GSE159699,lateral_temporal_lobe,738,100
+GSE203206,occipital_lobe,1,100
+GSE278723_CA1,hippocampus_CA1,3785,100
+GSE278723_CA2,hippocampus_CA2,3750,100
+GSE278723_CA3,hippocampus_CA3,3591,100
+GSE278723_CA4,hippocampus_CA4,2340,100
+GSE278723_NX,entorhinal_cortex,3770,100
+GSE95587,fusiform_gyrus,1189,100

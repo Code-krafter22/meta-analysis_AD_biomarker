@@ -21,19 +21,41 @@ if (!exists("analysis_mode", inherits = FALSE)) {
   stop("Set analysis_mode to 'filtered_unadjusted' or 'unfiltered_all_genes'.")
 }
 analysis_mode <- match.arg(analysis_mode,
-                           c("filtered_unadjusted", "unfiltered_all_genes"))
+                           c("filtered_unadjusted", "unfiltered_all_genes",
+                             "logfc_threshold"))
+
+# Screening knobs. Only the fold-change sensitivity branch sets them; for the
+# two prespecified branches they are NULL so stage 01 applies no extra screen
+# (this also clears them if a previous branch ran in the same session).
+if (analysis_mode == "logfc_threshold") {
+  if (!exists("screen_lfc_cut", inherits = FALSE) || !is.finite(screen_lfc_cut)) {
+    stop("Set screen_lfc_cut (|log2FC| gate) before running the logfc_threshold branch.")
+  }
+  if (!exists("screen_p_cut", inherits = FALSE)) screen_p_cut <- 0.05
+} else {
+  screen_lfc_cut <- NULL
+  screen_p_cut   <- NULL
+}
 
 project_root <- here::here()
 deg_root <- file.path(project_root, "results", "differential_expression")
-default_output <- file.path(project_root, "results", "meta_analysis", analysis_mode)
+output_tag <- if (analysis_mode == "logfc_threshold") {
+  paste0("logfc_gt_", formatC(screen_lfc_cut, format = "f", digits = 2))
+} else {
+  analysis_mode
+}
+default_output <- file.path(project_root, "results", "meta_analysis", output_tag)
 output_dir <- Sys.getenv("META_ANALYSIS_OUTPUT_DIR", unset = default_output)
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-input_file <- if (analysis_mode == "filtered_unadjusted") {
+# Per-dataset input table. Overridable so the FDR-screened branch can read the
+# adjusted DEG tables (adj.P.Val <= 0.05 & |log2FC| > 0.58) without a new mode.
+default_input <- if (analysis_mode == "filtered_unadjusted") {
   "significant_DEGs_unadjusted.csv"
 } else {
   "full_DE_results.csv"
 }
+input_file <- Sys.getenv("META_ANALYSIS_INPUT_FILE", unset = default_input)
 
 files <- tibble::tribble(
   ~acc,             ~region,                  ~path,

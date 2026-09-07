@@ -26,6 +26,11 @@ data/metadata/**/*.tsv
 data/metadata/**/*.txt
 data/metadata/**/*.xlsx
 
+# Exception: small published tables the pipeline needs to run. These are
+# transcribed from the source papers' supplements, not raw participant data.
+!data/metadata/GSE278723/GSE278723_supplementary_table1_donors.csv
+!data/metadata/GSE278723/GSE278723_sample_information.txt
+
 # Large DEG input matrices. Small signature-level and figure inputs remain.
 data/processed/GSE159699/EDITED_COUNTS.csv
 data/processed/GSE203206/GSE203206_Subramaniam.ADRC_brain.counts.tsv
@@ -36,3 +41,6 @@ data/processed/GSE95587/Edited_raw_counts.csv
 # Local secrets and path configuration.
 .env
 *.local
+
+# Covariate-adjustment working directory (duplicate outputs, draft correspondence).
+Results_covariate_adjusted/

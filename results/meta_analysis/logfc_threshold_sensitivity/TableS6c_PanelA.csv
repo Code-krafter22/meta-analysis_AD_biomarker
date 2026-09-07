@@ -1,0 +1,8 @@
+Specification,Per-study eligibility criteria,Genes entering meta-analysis,Genes eligible in >= 4 of 5 datasets,Consensus genes retained (of 37),Retained with I2 < 40%,Reported in
+Primary analysis,Unadjusted P <= 0.05 and |log2FC| > 0.58,316,44,37,37,Main text
+Sensitivity analysis 1 (no screening),No P-value or fold-change screening,15011,13335,37,21,Panel C
+Sensitivity analysis 2 (FDR),BH FDR <= 0.05 and |log2FC| > 0.58,31,0,8,7,Panel C
+Sensitivity analysis 3a,Unadjusted P <= 0.05 and |log2FC| > 1.0,19,6,5,5,Panel C
+Sensitivity analysis 3b,Unadjusted P <= 0.05 and |log2FC| > 0.25,2074,436,37,37,Panel C
+Harness control (re-run of primary at 0.58),Unadjusted P <= 0.05 and |log2FC| > 0.58,316,44,37,37,Not reported (control)
+P-only reference (no magnitude gate),"Unadjusted P <= 0.05, no |log2FC| criterion",2933,569,37,37,Not reported (attribution reference)

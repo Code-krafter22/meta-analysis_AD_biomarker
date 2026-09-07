@@ -112,23 +112,30 @@ analyze_one <- function(infile) {
   # --- Metadata (set per region; edit counts to match your files) ---
   sample_names <- colnames(counts_mat)
 
-  if (tag == "CA1") {
-    condition <- c(rep("Control", 12), rep("AD", 14))
-  } else if (tag == "CA2") {
-    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
-  } else if (tag == "CA3") {
-    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
-  } else if (tag == "CA4") {
-    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
-  } else if (tag == "NX") {
-    condition <- c(rep("Control", 14), rep("AD", 14))   # TODO: adjust if different
-  } else {
-    stop("Unknown tag: ", tag)
-  }
+  # Group labels come from the donor ID embedded in each column name
+  # (e.g. "14.CA2" -> donor "14"), joined to Supplementary Table 1 of the source
+  # paper (Li C et al. 2024, Aging Dis), which records the diagnostic group for
+  # all 50 donors: NC 01-13 (n = 13) and AD 14-28 (n = 15).
+  #
+  # The join is on donor ID rather than column position, so subregions with
+  # donors missing are handled correctly (CA1 does not contain every donor).
+  donors <- read.csv(
+    here::here("data", "metadata", "GSE278723",
+               "GSE278723_supplementary_table1_donors.csv"),
+    colClasses = c(Donor = "character"), stringsAsFactors = FALSE)
 
-  if (length(condition) != length(sample_names)) {
-    stop(sprintf("[%s] Condition length (%d) != number of samples (%d). Please fix metadata.", 
-                 tag, length(condition), length(sample_names)))
+  donor_id <- sub("\\..*$", "", sample_names)
+  grp <- donors$Group[match(donor_id, donors$Donor)]
+  if (anyNA(grp)) {
+    stop(sprintf("[%s] No Supplementary Table 1 entry for donor(s): %s",
+                 tag, paste(unique(donor_id[is.na(grp)]), collapse = ", ")))
+  }
+  # Only the NC and AD donors are retained; CAA and AD+CAA are out of scope.
+  condition <- ifelse(grp == "NC", "Control", ifelse(grp == "AD", "AD", NA))
+  if (anyNA(condition)) {
+    message("[", tag, "] Excluding ", sum(is.na(condition)),
+            " sample(s) from groups other than NC/AD: ",
+            paste(unique(grp[is.na(condition)]), collapse = ", "))
   }
 
   metadata <- data.frame(Sample = sample_names,

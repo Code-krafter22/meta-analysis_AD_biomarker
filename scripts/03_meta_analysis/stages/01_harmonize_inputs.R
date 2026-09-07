@@ -90,6 +90,22 @@ read_one_deg <- function(path, acc, region){
     dplyr::filter(!is.na(SYMBOL), SYMBOL != "") |>
     standardize_stat_cols()
   
+  ## Optional per-dataset screening (fold-change sensitivity branch only).
+  ## Applied HERE — on raw rows, per study arm, before the one-row-per-SYMBOL
+  ## collapse and before GSE278723 subregion pooling. That ordering matters: the
+  ## primary branch reads tables that were already screened on disk, so its
+  ## collapse picks the best row among *passing* rows. Screening after the
+  ## collapse instead would pick a representative row that may then be
+  ## discarded, and does not reproduce the primary run. NULL for the two
+  ## prespecified branches, which are unaffected.
+  if (exists("screen_lfc_cut", inherits = TRUE) && !is.null(screen_lfc_cut)) {
+    df <- df |>
+      dplyr::filter(is.finite(suppressWarnings(as.numeric(P.Value))),
+                    is.finite(suppressWarnings(as.numeric(logFC))),
+                    suppressWarnings(as.numeric(P.Value)) <= screen_p_cut,
+                    abs(suppressWarnings(as.numeric(logFC))) > screen_lfc_cut)
+  }
+  
   # One row per SYMBOL per study (lowest p; tie → largest |logFC|)
   df |>
     dplyr::mutate(
@@ -125,6 +141,12 @@ deg_std_list <- purrr::pmap(files, function(acc, region, path){
 }) |> purrr::set_names(files$acc)
 
 all_deg <- dplyr::bind_rows(deg_std_list)
+
+if (exists("screen_lfc_cut", inherits = TRUE) && !is.null(screen_lfc_cut)) {
+  message("Per-dataset screen applied: P <= ", screen_p_cut,
+          " & |logFC| > ", screen_lfc_cut)
+  print(dplyr::count(all_deg, acc, name = "eligible_genes"))
+}
 
 readr::write_csv(all_deg, file.path(output_dir, "all_studies_harmonized.csv"))
 message(

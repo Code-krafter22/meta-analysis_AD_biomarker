@@ -18,6 +18,9 @@ source("scripts/00_install_R_dependencies.R")
 # Both prespecified meta-analysis branches
 source("scripts/03_meta_analysis/00_run_all_meta_analyses.R")
 
+# Screening-sensitivity analyses (fold-change thresholds + summary tables)
+source("scripts/03_meta_analysis/03_meta_analysis_logfc_threshold.R")
+
 # Figures 1–4
 source("scripts/05_figures/manuscript/figure1_consensus_meta_analysis/run_figure1.R")
 source("scripts/05_figures/manuscript/figure2_enrichment_ppi/run_figure2.R")
@@ -40,6 +43,14 @@ Final figures are written to `results/figures/main/`.
   historical branch produced the 37-gene signature.
 - `unfiltered_all_genes`: reviewer-requested analysis using all tested genes
   without a P-value or logFC prefilter.
+- `fdr_screened`: FDR-screened branch (BH FDR <= 0.05 with the fold-change
+  criterion held at 0.58).
+- `logfc_gt_*`: fold-change screening sensitivity, holding unadjusted
+  P <= 0.05 fixed and varying only the magnitude threshold.
+
+Screening-sensitivity results for all of the above are collected into one
+Panel A table in `results/meta_analysis/logfc_threshold_sensitivity/`; see the
+README there.
 
 ## Data access and software
 

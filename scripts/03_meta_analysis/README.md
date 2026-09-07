@@ -6,6 +6,7 @@ There are **two prespecified analysis branches**, not two accidental copies:
 |---|---|---|---|
 | 1. Filtered/unadjusted | Dataset DEGs selected using unadjusted `P.Value < 0.05` | Primary historical analysis that produced the 37-gene signature | `results/meta_analysis/filtered_unadjusted/` |
 | 2. Unfiltered/all genes | All tested genes; no P-value or logFC prefilter | Reviewer-requested non-filtered sensitivity analysis | `results/meta_analysis/unfiltered_all_genes/` |
+| 3. Fold-change threshold | Unadjusted `P <= 0.05` held fixed; `\|log2FC\|` varied | Reviewer-requested fold-change sensitivity analysis | `results/meta_analysis/logfc_gt_<cut>/` |
 
 ## Recommended command
 
@@ -21,6 +22,24 @@ To run only one branch:
 source("scripts/03_meta_analysis/01_meta_analysis_filtered_unadjusted.R")
 source("scripts/03_meta_analysis/02_meta_analysis_unfiltered.R")
 ```
+
+## Branch 3 — fold-change threshold sensitivity
+
+```r
+source("scripts/03_meta_analysis/03_meta_analysis_logfc_threshold.R")
+```
+
+Runs the engine at `|log2FC| > 0.58, 1.00, 0.25` and `0.00`, all with unadjusted
+`P <= 0.05` held fixed, driven from the unfiltered `full_DE_results.csv` tables.
+`0.58` is a harness control (it must reproduce the primary analysis) and `0.00`
+is a P-only reference used to attribute dropouts to the magnitude gate; only
+`1.00` and `0.25` are reported specifications. Summary tables land in
+`results/meta_analysis/logfc_threshold_sensitivity/`, which also collects the
+two prespecified branches and the FDR-screened branch into one Panel A.
+
+The branch sets `screen_lfc_cut` / `screen_p_cut` before sourcing the engine.
+For branches 1 and 2 the config sets both to `NULL` and `stages/01` applies no
+extra screen, so those branches are unchanged.
 
 ## Shared implementation
 
